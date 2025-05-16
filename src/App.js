@@ -18,7 +18,7 @@ const Button = ({ children, className = '', ...props }) => (
   </button>
 );
 
-const TREASURY_WALLET = new PublicKey('ENTER_TREASURY_WALLET_ADDRESS_HERE');
+const TREASURY_WALLET = new PublicKey('DQeRRYooThKaTY4XZyeiFFpPnrqLSrdmEGhJzXpXYswg');
 
 const RANGE_WIDTHS = {
   BTC: {
