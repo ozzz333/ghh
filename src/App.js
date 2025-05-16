@@ -14,6 +14,8 @@ const Button = ({ children, className = '', ...props }) => (
 export default function ParlayBuilder() {
   const [legs, setLegs] = useState([]);
   const [walletAddress, setWalletAddress] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [showDisconnect, setShowDisconnect] = useState(false);
   const [history, setHistory] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState("BTC");
   const [timeframe, setTimeframe] = useState("24-hour");
@@ -75,6 +77,20 @@ const ASSETS = {
     "14-day": 336,
     "30-day": 720
   };
+
+  useEffect(() => {
+    if (window.solana && window.solana.isPhantom) {
+      window.solana.connect({ onlyIfTrusted: true })
+        .then(async (res) => {
+          const address = res.publicKey.toString();
+          setWalletAddress(address);
+          const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+          const balance = await connection.getBalance(res.publicKey);
+          setWalletBalance((balance / 1e9).toFixed(2));
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     async function fetchPrice() {
@@ -185,10 +201,18 @@ const ASSETS = {
     <Button
       className="absolute right-0 top-0 text-sm"
       onClick={async () => {
+        if (walletAddress) {
+          setShowDisconnect(!showDisconnect);
+          return;
+        }
         if (window.solana && window.solana.isPhantom) {
           try {
             const response = await window.solana.connect();
-            setWalletAddress(response.publicKey.toString());
+            const address = response.publicKey.toString();
+            setWalletAddress(address);
+            const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+            const balance = await connection.getBalance(response.publicKey);
+            setWalletBalance((balance / 1e9).toFixed(2));
           } catch (error) {
             console.error("User denied wallet connection", error);
           }
@@ -197,10 +221,21 @@ const ASSETS = {
         }
       }}
     >
-      {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Connect Wallet"}
+      {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)} (${walletBalance ?? '?'} SOL)` : "Connect Wallet"}
     </Button>
-  </div>
+  {showDisconnect && (
+        <div className="absolute right-0 top-10 bg-white border p-2 shadow rounded">
+          <Button className="text-sm" onClick={() => {
+            setWalletAddress(null);
+            setWalletBalance(null);
+            setShowDisconnect(false);
+          }}>Disconnect</Button>
+        </div>
+      )}
+
+      </div>
       <div className="w-full max-w-2xl">
+        {walletAddress ? (
         <Card>
           <CardContent className="space-y-4">
             <h2 className="text-xl font-bold">Parlay Builder</h2>
@@ -303,6 +338,9 @@ const ASSETS = {
             </div>
           </CardContent>
         </Card>
+      ) : (
+        <div className="text-center text-gray-500 font-medium py-8">Please connect your wallet to use the platform.</div>
+      )}
       </div>
       <div className="w-full max-w-2xl">
         <Card>
