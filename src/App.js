@@ -30,42 +30,48 @@ export default function ParlayBuilder() {
   const [transactionStatus, setTransactionStatus] = useState(null);
 
   // Treasury wallet address where bets will be sent
-  const TREASURY_WALLET = "DQeRRYooThKaTY4XZyeiFFpPnrqLSrdmEGhJzXpXYswg"; // Replace with your actual treasury wallet address
+  const TREASURY_WALLET = "YOUR_TREASURY_WALLET_ADDRESS"; // Replace with your actual treasury wallet address
+
+  // Create a Solana connection
+  const connection = useMemo(() => new web3.Connection(
+    "https://api.mainnet-beta.solana.com",
+    'confirmed'
+  ), []);
 
   const RANGE_WIDTHS = {
-  BTC: {
-    "1-hour": { min: 0.005, max: 0.05 },
-    "24-hour": { min: 0.01, max: 0.12 },
-    "7-day": { min: 0.015, max: 0.18 },
-    "30-day": { min: 0.025, max: 0.25 }
-  },
-  ETH: {
-    "1-hour": { min: 0.0075, max: 0.06 },
-    "24-hour": { min: 0.015, max: 0.15 },
-    "7-day": { min: 0.025, max: 0.22 },
-    "30-day": { min: 0.035, max: 0.30 }
-  },
-  SOL: {
-    "1-hour": { min: 0.01, max: 0.07 },
-    "24-hour": { min: 0.02, max: 0.17 },
-    "7-day": { min: 0.03, max: 0.25 },
-    "30-day": { min: 0.04, max: 0.35 }
-  },
-  LINK: {
-    "1-hour": { min: 0.01, max: 0.08 },
-    "24-hour": { min: 0.02, max: 0.18 },
-    "7-day": { min: 0.03, max: 0.26 },
-    "30-day": { min: 0.04, max: 0.36 }
-  },
-  DOGE: {
-    "1-hour": { min: 0.015, max: 0.10 },
-    "24-hour": { min: 0.025, max: 0.20 },
-    "7-day": { min: 0.035, max: 0.30 },
-    "30-day": { min: 0.05, max: 0.40 }
-  }
-};
+    BTC: {
+      "1-hour": { min: 0.005, max: 0.05 },
+      "24-hour": { min: 0.01, max: 0.12 },
+      "7-day": { min: 0.015, max: 0.18 },
+      "30-day": { min: 0.025, max: 0.25 }
+    },
+    ETH: {
+      "1-hour": { min: 0.0075, max: 0.06 },
+      "24-hour": { min: 0.015, max: 0.15 },
+      "7-day": { min: 0.025, max: 0.22 },
+      "30-day": { min: 0.035, max: 0.30 }
+    },
+    SOL: {
+      "1-hour": { min: 0.01, max: 0.07 },
+      "24-hour": { min: 0.02, max: 0.17 },
+      "7-day": { min: 0.03, max: 0.25 },
+      "30-day": { min: 0.04, max: 0.35 }
+    },
+    LINK: {
+      "1-hour": { min: 0.01, max: 0.08 },
+      "24-hour": { min: 0.02, max: 0.18 },
+      "7-day": { min: 0.03, max: 0.26 },
+      "30-day": { min: 0.04, max: 0.36 }
+    },
+    DOGE: {
+      "1-hour": { min: 0.015, max: 0.10 },
+      "24-hour": { min: 0.025, max: 0.20 },
+      "7-day": { min: 0.035, max: 0.30 },
+      "30-day": { min: 0.05, max: 0.40 }
+    }
+  };
 
-const ASSETS = {
+  const ASSETS = {
     BTC: { name: "Bitcoin", symbol: "bitcoin", volatility: 0.02, marketCapTier: "Mega" },
     ETH: { name: "Ethereum", symbol: "ethereum", volatility: 0.025, marketCapTier: "Large" },
     SOL: { name: "Solana", symbol: "solana", volatility: 0.035, marketCapTier: "Mid" },
@@ -84,12 +90,32 @@ const ASSETS = {
     "30-day": 720
   };
 
-  // Create a Solana connection
-  const connection = useMemo(() => new web3.Connection(
-    "https://api.mainnet-beta.solana.com",
-    'confirmed'
-  ), []);
+  // Function to handle wallet connection
+  const connectWallet = async () => {
+    if (!window.solana || !window.solana.isPhantom) {
+      alert("Phantom Wallet not found. Please install it.");
+      return;
+    }
 
+    try {
+      const response = await window.solana.connect();
+      const address = response.publicKey.toString();
+      setWalletAddress(address);
+      
+      try {
+        const balance = await connection.getBalance(response.publicKey);
+        setWalletBalance((balance / 1e9).toFixed(2));
+      } catch (err) {
+        console.error("Failed to get balance:", err);
+        setError("Failed to get wallet balance. Please try again.");
+      }
+    } catch (error) {
+      console.error("User denied wallet connection", error);
+      setError("Wallet connection was denied.");
+    }
+  };
+
+  // Auto-connect to wallet if already authorized
   useEffect(() => {
     if (window.solana && window.solana.isPhantom) {
       window.solana.connect({ onlyIfTrusted: true })
@@ -103,10 +129,13 @@ const ASSETS = {
             console.error("Failed to get balance:", err);
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          // Silent fail if not previously trusted
+        });
     }
   }, [connection]);
 
+  // Fetch live price for selected asset
   useEffect(() => {
     async function fetchPrice() {
       try {
@@ -121,6 +150,7 @@ const ASSETS = {
     fetchPrice();
   }, [selectedAsset]);
 
+  // Fetch volatility data for selected asset
   useEffect(() => {
     async function fetchVolatility() {
       try {
@@ -229,6 +259,7 @@ const ASSETS = {
     try {
       setIsTransacting(true);
       setTransactionStatus("Preparing transaction...");
+      setError(""); // Clear any previous errors
 
       // Get user public key
       const fromPubkey = window.solana.publicKey;
@@ -329,23 +360,7 @@ const ASSETS = {
               setShowDisconnect(!showDisconnect);
               return;
             }
-            if (window.solana && window.solana.isPhantom) {
-              try {
-                const response = await window.solana.connect();
-                const address = response.publicKey.toString();
-                setWalletAddress(address);
-                try {
-                  const balance = await connection.getBalance(response.publicKey);
-                  setWalletBalance((balance / 1e9).toFixed(2));
-                } catch (err) {
-                  console.error("Failed to get balance:", err);
-                }
-              } catch (error) {
-                console.error("User denied wallet connection", error);
-              }
-            } else {
-              alert("Phantom Wallet not found. Please install it.");
-            }
+            await connectWallet();
           }}
         >
           {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)} (${walletBalance ?? '?'} SOL)` : "Connect Wallet"}
@@ -447,7 +462,7 @@ const ASSETS = {
                 </div>
                 <div className="mt-2">
                   <div className="flex items-center space-x-2">
-                    <span className="text-gray-600">$</span>
+                    <span className="text-gray-600">SOL</span>
                     <input 
                       type="number" 
                       placeholder="Bet Amount (SOL)" 
@@ -484,36 +499,40 @@ const ASSETS = {
           <CardContent>
             <h2 className="text-xl font-bold mb-4">Bet History</h2>
             <ul className="space-y-2 text-sm text-gray-800">
-              {history.map((ticket, i) => (
-                <li key={i} className="border-b pb-2">
-                  <div><strong>Placed:</strong> {new Date(ticket.timestamp).toLocaleString()}</div>
-                  <div><strong>Amount:</strong> {ticket.betAmount} SOL</div>
-                  {ticket.signature && (
-                    <div>
-                      <strong>Transaction:</strong>{" "}
-                      <a 
-                        href={`https://explorer.solana.com/tx/${ticket.signature}`}
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        {ticket.signature.slice(0, 8)}...{ticket.signature.slice(-8)}
-                      </a>
+              {history.length === 0 ? (
+                <li className="text-gray-500">No bet history yet.</li>
+              ) : (
+                history.map((ticket, i) => (
+                  <li key={i} className="border-b pb-2">
+                    <div><strong>Placed:</strong> {new Date(ticket.timestamp).toLocaleString()}</div>
+                    <div><strong>Amount:</strong> {ticket.betAmount} SOL</div>
+                    {ticket.signature && (
+                      <div>
+                        <strong>Transaction:</strong>{" "}
+                        <a 
+                          href={`https://explorer.solana.com/tx/${ticket.signature}`}
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          {ticket.signature.slice(0, 8)}...{ticket.signature.slice(-8)}
+                        </a>
+                      </div>
+                    )}
+                    <div><strong>Status:</strong> <span className={ticket.status === 'confirmed' ? 'text-green-600' : 'text-yellow-600'}>{ticket.status || 'pending'}</span></div>
+                    <div><strong>Legs:</strong>
+                      <ul className="ml-4 list-disc">
+                        {ticket.legs.map((leg, j) => (
+                          <li key={j} className={`flex justify-between ${((leg.lowerBound + leg.upperBound) / 2) > livePrice ? 'text-green-600' : 'text-red-600'}`}>
+                            <span>{leg.asset} | {leg.timeframe} | ${leg.lowerBound} - ${leg.upperBound}</span>
+                            <span className="ml-2 font-bold">{((leg.lowerBound + leg.upperBound) / 2) > livePrice ? '↑' : '↓'}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  )}
-                  <div><strong>Status:</strong> <span className={ticket.status === 'confirmed' ? 'text-green-600' : 'text-yellow-600'}>{ticket.status || 'pending'}</span></div>
-                  <div><strong>Legs:</strong>
-                    <ul className="ml-4 list-disc">
-                      {ticket.legs.map((leg, j) => (
-                        <li key={j} className={`flex justify-between ${((leg.lowerBound + leg.upperBound) / 2) > livePrice ? 'text-green-600' : 'text-red-600'}`}>
-                          <span>{leg.asset} | {leg.timeframe} | ${leg.lowerBound} - ${leg.upperBound}</span>
-                          <span className="ml-2 font-bold">{((leg.lowerBound + leg.upperBound) / 2) > livePrice ? '↑' : '↓'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                ))
+              )}
             </ul>
           </CardContent>
         </Card>
