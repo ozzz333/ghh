@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as web3 from '@solana/web3.js';
 
 const Card = ({ children }) => <div className="border rounded-xl p-4 shadow bg-white">{children}</div>;
 const CardContent = ({ children, className }) => <div className={className}>{children}</div>;
@@ -83,42 +84,28 @@ const ASSETS = {
     "30-day": 720
   };
 
-  // Create a reference to the Solana Web3 library
-  const [solanaWeb3, setSolanaWeb3] = useState(null);
-
-  // Load Web3 library when component mounts
-  useEffect(() => {
-    // Check if window.solanaWeb3 already exists
-    if (window.solanaWeb3) {
-      setSolanaWeb3(window.solanaWeb3);
-    } else if (window.solana && window.solana.isPhantom) {
-      // If not, try to get it from Phantom wallet provider
-      setSolanaWeb3(window.solana.solanaWeb3);
-    } else {
-      // Dynamically import the Solana Web3 library if needed
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js';
-      script.async = true;
-      script.onload = () => {
-        setSolanaWeb3(window.solanaWeb3);
-      };
-      document.body.appendChild(script);
-    }
-  }, []);
+  // Create a Solana connection
+  const connection = useMemo(() => new web3.Connection(
+    "https://api.mainnet-beta.solana.com",
+    'confirmed'
+  ), []);
 
   useEffect(() => {
-    if (window.solana && window.solana.isPhantom && solanaWeb3) {
+    if (window.solana && window.solana.isPhantom) {
       window.solana.connect({ onlyIfTrusted: true })
         .then(async (res) => {
           const address = res.publicKey.toString();
           setWalletAddress(address);
-          const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
-          const balance = await connection.getBalance(res.publicKey);
-          setWalletBalance((balance / 1e9).toFixed(2));
+          try {
+            const balance = await connection.getBalance(res.publicKey);
+            setWalletBalance((balance / 1e9).toFixed(2));
+          } catch (err) {
+            console.error("Failed to get balance:", err);
+          }
         })
         .catch(() => {});
     }
-  }, [solanaWeb3]);
+  }, [connection]);
 
   useEffect(() => {
     async function fetchPrice() {
@@ -229,11 +216,6 @@ const ASSETS = {
       return false;
     }
 
-    if (!solanaWeb3) {
-      setError("Solana Web3 library not loaded. Please refresh the page.");
-      return false;
-    }
-
     if (legs.length === 0) {
       setError("No legs added to the parlay");
       return false;
@@ -248,22 +230,16 @@ const ASSETS = {
       setIsTransacting(true);
       setTransactionStatus("Preparing transaction...");
 
-      // Create connection to Solana
-      const connection = new solanaWeb3.Connection(
-        "https://api.mainnet-beta.solana.com", 
-        'confirmed'
-      );
-
       // Get user public key
       const fromPubkey = window.solana.publicKey;
       
       // Parse treasury wallet address
-      const toPubkey = new solanaWeb3.PublicKey(TREASURY_WALLET);
+      const toPubkey = new web3.PublicKey(TREASURY_WALLET);
       
       // Create a transaction
-      const transaction = new solanaWeb3.Transaction().add(
+      const transaction = new web3.Transaction().add(
         // Create a transfer instruction
-        solanaWeb3.SystemProgram.transfer({
+        web3.SystemProgram.transfer({
           fromPubkey,
           toPubkey,
           lamports: betAmount * 1e9, // Convert SOL to lamports
@@ -284,11 +260,10 @@ const ASSETS = {
       };
 
       // Use SPL Memo Program for transaction memo
-      // This is an alternative approach that doesn't require importing the memo program
       const encodedData = new TextEncoder().encode(JSON.stringify(betData).substring(0, 500));
-      const memoInstruction = new solanaWeb3.TransactionInstruction({
+      const memoInstruction = new web3.TransactionInstruction({
         keys: [],
-        programId: new solanaWeb3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
+        programId: new web3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
         data: encodedData
       });
       transaction.add(memoInstruction);
@@ -359,12 +334,11 @@ const ASSETS = {
                 const response = await window.solana.connect();
                 const address = response.publicKey.toString();
                 setWalletAddress(address);
-                if (solanaWeb3) {
-                  const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+                try {
                   const balance = await connection.getBalance(response.publicKey);
                   setWalletBalance((balance / 1e9).toFixed(2));
-                } else {
-                  console.error("Solana Web3 library not loaded");
+                } catch (err) {
+                  console.error("Failed to get balance:", err);
                 }
               } catch (error) {
                 console.error("User denied wallet connection", error);
