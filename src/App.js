@@ -103,8 +103,14 @@ const ASSETS = {
           return count + (change >= 0.10 ? 1 : 0);
         }, 0);
         const tailFactor = 1 + Math.min(outlierCount / 90, 0.25);
-        const dailyVolatility = Math.sqrt(variance) * tailFactor;
-        setLiveVolatility(dailyVolatility);
+       const dailyVolatility = Math.sqrt(variance) * tailFactor;
+if (isNaN(dailyVolatility) || dailyVolatility === 0) {
+  console.warn(`Using fallback volatility for ${selectedAsset}:`, ASSETS[selectedAsset].volatility);
+  setLiveVolatility(ASSETS[selectedAsset].volatility);
+} else {
+  setLiveVolatility(dailyVolatility);
+}
+
       } catch (err) {
         console.error("Error fetching volatility", err);
         setLiveVolatility(null);
