@@ -13,6 +13,7 @@ const Button = ({ children, className = '', ...props }) => (
 
 export default function ParlayBuilder() {
   const [legs, setLegs] = useState([]);
+  const [walletAddress, setWalletAddress] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState("BTC");
   const [timeframe, setTimeframe] = useState("24-hour");
@@ -103,14 +104,8 @@ const ASSETS = {
           return count + (change >= 0.10 ? 1 : 0);
         }, 0);
         const tailFactor = 1 + Math.min(outlierCount / 90, 0.25);
-       const dailyVolatility = Math.sqrt(variance) * tailFactor;
-if (isNaN(dailyVolatility) || dailyVolatility === 0) {
-  console.warn(`Using fallback volatility for ${selectedAsset}:`, ASSETS[selectedAsset].volatility);
-  setLiveVolatility(ASSETS[selectedAsset].volatility);
-} else {
-  setLiveVolatility(dailyVolatility);
-}
-
+        const dailyVolatility = Math.sqrt(variance) * tailFactor;
+        setLiveVolatility(dailyVolatility);
       } catch (err) {
         console.error("Error fetching volatility", err);
         setLiveVolatility(null);
@@ -159,10 +154,10 @@ if (isNaN(dailyVolatility) || dailyVolatility === 0) {
     let prob = legs.reduce((acc, leg) => {
       const asset = ASSETS[leg.asset];
       const p = calculateProbability(
-        livePrice,
+        leg.priceAtAdd,
         leg.lowerBound,
         leg.upperBound,
-        liveVolatility,
+        leg.volatilityAtAdd,
         leg.timeframe,
         asset.marketCapTier
       );
@@ -185,6 +180,26 @@ if (isNaN(dailyVolatility) || dailyVolatility === 0) {
 
   return (
     <div className="p-4 space-y-6 bg-white text-black min-h-screen flex flex-col items-center">
+  <div className="relative w-full max-w-2xl">
+    <h1 className="text-4xl font-extrabold text-center">prly.fun</h1>
+    <Button
+      className="absolute right-0 top-0 text-sm"
+      onClick={async () => {
+        if (window.solana && window.solana.isPhantom) {
+          try {
+            const response = await window.solana.connect();
+            setWalletAddress(response.publicKey.toString());
+          } catch (error) {
+            console.error("User denied wallet connection", error);
+          }
+        } else {
+          alert("Phantom Wallet not found. Please install it.");
+        }
+      }}
+    >
+      {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Connect Wallet"}
+    </Button>
+  </div>
       <div className="w-full max-w-2xl">
         <Card>
           <CardContent className="space-y-4">
@@ -226,32 +241,65 @@ if (isNaN(dailyVolatility) || dailyVolatility === 0) {
                 return;
               }
               setError("");
-              setLegs([...legs, { ...newLeg, id: Date.now() }]);
+              setLegs([
+  ...legs,
+  {
+    ...newLeg,
+    id: Date.now(),
+    priceAtAdd: livePrice,
+    volatilityAtAdd: liveVolatility
+  }
+]);
             }}>Add to Parlay</Button>
             <div className="mt-4">
               <h3 className="font-semibold">Current Ticket:</h3>
               <ul className="text-sm text-gray-900">
-                {legs.map((leg, i) => (
-                  <li key={leg.id} className="flex justify-between">
-                    <span>{leg.asset} | {leg.timeframe} | ${leg.lowerBound} - ${leg.upperBound} <span className={`ml-2 font-semibold ${((leg.lowerBound + leg.upperBound) / 2) > livePrice ? 'text-green-600' : 'text-red-600'}`}>{((leg.lowerBound + leg.upperBound) / 2) > livePrice ? '↑' : '↓'}</span></span>
-                    <Button className="ml-2 px-2 py-1 text-xs" onClick={() => setLegs(legs.filter(l => l.id !== leg.id))}>Remove</Button>
-                  </li>
-                ))}
-              </ul>
+  {legs.length === 0 ? (
+    <li className="text-gray-500">No legs added yet.</li>
+  ) : (
+    legs.map((leg) => {
+      const asset = ASSETS[leg.asset];
+      const legProb = calculateProbability(
+        leg.priceAtAdd,
+        leg.lowerBound,
+        leg.upperBound,
+        leg.volatilityAtAdd,
+        leg.timeframe,
+        asset.marketCapTier
+      );
+      const legOdds = legProb > 0 ? (1 / legProb).toFixed(1) : "N/A";
+      return (
+        <li key={leg.id} className="flex justify-between">
+          <span>
+            {leg.asset} | {leg.timeframe} | ${leg.lowerBound} - ${leg.upperBound} <span className={`ml-2 font-semibold ${((leg.lowerBound + leg.upperBound) / 2) > livePrice ? 'text-green-600' : 'text-red-600'}`}>{((leg.lowerBound + leg.upperBound) / 2) > livePrice ? '↑' : '↓'}</span>
+          </span>
+          <span className="ml-4 text-sm text-gray-500">{legOdds}x</span>
+          <Button className="ml-2 px-2 py-1 text-xs" onClick={() => setLegs(legs.filter(l => l.id !== leg.id))}>Remove</Button>
+        </li>
+      );
+    })
+  )}
+</ul>
               <div className="mt-2 font-medium text-sm text-green-700">
                 Parlay Odds: {parlayOdds.toFixed(2)}x | Win Probability: {(parlayProbability * 100).toFixed(2)}%<br />
                 Total Payout: ${totalPayout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <input type="number" placeholder="Bet Amount" value={betAmount} onChange={e => setBetAmount(parseFloat(e.target.value))} className="mt-2 border p-1 rounded" />
-              <Button className="mt-2" onClick={() => {
-                const ticket = {
-                  legs,
-                  betAmount,
-                  timestamp: new Date().toISOString()
-                };
-                setHistory([ticket, ...history]);
-                setLegs([]);
-              }}>Place Bet</Button>
+              <div className="mt-2">
+  <div className="flex items-center space-x-2">
+    <span className="text-gray-600">$</span>
+    <input type="number" placeholder="Bet Amount" value={betAmount} onChange={e => setBetAmount(parseFloat(e.target.value))} className="border p-1 rounded w-32" />
+    <Button onClick={() => {
+      const ticket = {
+        legs,
+        betAmount,
+        timestamp: new Date().toISOString()
+      };
+      setHistory([ticket, ...history]);
+      setLegs([]);
+    }}>Place Bet</Button>
+  </div>
+</div>
+              
             </div>
           </CardContent>
         </Card>
