@@ -83,19 +83,42 @@ const ASSETS = {
     "30-day": 720
   };
 
+  // Create a reference to the Solana Web3 library
+  const [solanaWeb3, setSolanaWeb3] = useState(null);
+
+  // Load Web3 library when component mounts
   useEffect(() => {
-    if (window.solana && window.solana.isPhantom) {
+    // Check if window.solanaWeb3 already exists
+    if (window.solanaWeb3) {
+      setSolanaWeb3(window.solanaWeb3);
+    } else if (window.solana && window.solana.isPhantom) {
+      // If not, try to get it from Phantom wallet provider
+      setSolanaWeb3(window.solana.solanaWeb3);
+    } else {
+      // Dynamically import the Solana Web3 library if needed
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js';
+      script.async = true;
+      script.onload = () => {
+        setSolanaWeb3(window.solanaWeb3);
+      };
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.solana && window.solana.isPhantom && solanaWeb3) {
       window.solana.connect({ onlyIfTrusted: true })
         .then(async (res) => {
           const address = res.publicKey.toString();
           setWalletAddress(address);
-          const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+          const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
           const balance = await connection.getBalance(res.publicKey);
           setWalletBalance((balance / 1e9).toFixed(2));
         })
         .catch(() => {});
     }
-  }, []);
+  }, [solanaWeb3]);
 
   useEffect(() => {
     async function fetchPrice() {
@@ -206,6 +229,11 @@ const ASSETS = {
       return false;
     }
 
+    if (!solanaWeb3) {
+      setError("Solana Web3 library not loaded. Please refresh the page.");
+      return false;
+    }
+
     if (legs.length === 0) {
       setError("No legs added to the parlay");
       return false;
@@ -221,7 +249,7 @@ const ASSETS = {
       setTransactionStatus("Preparing transaction...");
 
       // Create connection to Solana
-      const connection = new window.solanaWeb3.Connection(
+      const connection = new solanaWeb3.Connection(
         "https://api.mainnet-beta.solana.com", 
         'confirmed'
       );
@@ -230,12 +258,12 @@ const ASSETS = {
       const fromPubkey = window.solana.publicKey;
       
       // Parse treasury wallet address
-      const toPubkey = new window.solanaWeb3.PublicKey(TREASURY_WALLET);
+      const toPubkey = new solanaWeb3.PublicKey(TREASURY_WALLET);
       
       // Create a transaction
-      const transaction = new window.solanaWeb3.Transaction().add(
+      const transaction = new solanaWeb3.Transaction().add(
         // Create a transfer instruction
-        window.solanaWeb3.SystemProgram.transfer({
+        solanaWeb3.SystemProgram.transfer({
           fromPubkey,
           toPubkey,
           lamports: betAmount * 1e9, // Convert SOL to lamports
@@ -255,11 +283,13 @@ const ASSETS = {
         timestamp: Date.now()
       };
 
-      // Add memo instruction with bet data (the on-chain memo program)
-      const memoInstruction = new window.solanaWeb3.TransactionInstruction({
+      // Use SPL Memo Program for transaction memo
+      // This is an alternative approach that doesn't require importing the memo program
+      const encodedData = new TextEncoder().encode(JSON.stringify(betData).substring(0, 500));
+      const memoInstruction = new solanaWeb3.TransactionInstruction({
         keys: [],
-        programId: new window.solanaWeb3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
-        data: Buffer.from(JSON.stringify(betData).substring(0, 500)) // Limit memo size
+        programId: new solanaWeb3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
+        data: encodedData
       });
       transaction.add(memoInstruction);
 
@@ -279,7 +309,7 @@ const ASSETS = {
       setTransactionStatus("Confirming transaction...");
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
       
-      if (confirmation.value.err) {
+      if (confirmation.value && confirmation.value.err) {
         throw new Error("Transaction failed: " + confirmation.value.err);
       }
 
@@ -329,9 +359,13 @@ const ASSETS = {
                 const response = await window.solana.connect();
                 const address = response.publicKey.toString();
                 setWalletAddress(address);
-                const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
-                const balance = await connection.getBalance(response.publicKey);
-                setWalletBalance((balance / 1e9).toFixed(2));
+                if (solanaWeb3) {
+                  const connection = new solanaWeb3.Connection("https://api.mainnet-beta.solana.com");
+                  const balance = await connection.getBalance(response.publicKey);
+                  setWalletBalance((balance / 1e9).toFixed(2));
+                } else {
+                  console.error("Solana Web3 library not loaded");
+                }
               } catch (error) {
                 console.error("User denied wallet connection", error);
               }
